@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Processing Tool</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <div class="container py-4">
+        <div class="row justify-content-center">
+            <div class="col-8">
+                <div class="card shadow">
+                    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                        <h4 class="mb-0">Order Information</h4>
+                        <div>
+                            <button class="btn btn-outline-light me-2" onclick="clearTable()" id="clearBtn" disabled>
+                                Clear All
+                            </button>
+                            <button class="btn btn-outline-light" onclick="downloadCsv()" id="downloadBtn" disabled>
+                                Download CSV
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <!-- File input section -->
+                        <div class="mb-4">
+                            <label for="fileInput" class="form-label">Upload Order File</label>
+                            <input type="file" class="form-control" id="fileInput" accept=".txt">
+                        </div>
+
+                        <!-- Table section -->
+                        <div class="table-responsive">
+                            <table class="table table-bordered table-hover" id="orderTable">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Order Number</th>
+                                        <th>Total Copies</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="orderTableBody">
+                                    <tr>
+                                        <td colspan="3" class="text-center">No data loaded</td>
+                                    </tr>
+                                </tbody>
+                                <tfoot class="table-light" id="tableFoot">
+                                    <tr>
+                                        <td colspan="2" class="text-end"><strong>Total:</strong></td>
+                                        <td class="text-start"><strong>0</strong></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        function formatDate(dateStr) {
+            const date = new Date(dateStr);
+            return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+        }
+
+        document.getElementById('fileInput').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            
+            reader.onload = function(e) {
+                const content = e.target.result;
+                processOrders(content);
+            };
+
+            reader.onerror = function(e) {
+                alert(`Error reading file: ${e.target.error}`);
+            };
+
+            reader.readAsText(file);
+        });
+
+        function processOrders(fileContent) {
+            try {
+                const lines = fileContent.split('\n');
+                const orderMap = new Map();
+                
+                let currentOrder = null;
+                let orderDate = '';
+                
+                lines.forEach(line => {
+                    // Check for header line (H1)
+                    if (line.startsWith('H1')) {
+                        const orderMatch = line.match(/H1(\d{10})\s+(\d{8})/);
+                        if (orderMatch) {
+                            currentOrder = orderMatch[1];
+                            const dateStr = orderMatch[2];
+                            orderDate = `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`;
+                            
+                            // Initialize order if it doesn't exist
+                            if (!orderMap.has(currentOrder)) {
+                                orderMap.set(currentOrder, {
+                                    orderNumber: currentOrder,
+                                    totalCopies: 0,
+                                    date: orderDate
+                                });
+                            }
+                        }
+                    }
+                    // Check for detail line (D1)
+                    else if (line.startsWith('D1') && currentOrder) {
+                        const quantityMatch = line.match(/(\d{4})0{20}/);
+                        if (quantityMatch) {
+                            const quantity = parseInt(quantityMatch[1], 10);
+                            const orderData = orderMap.get(currentOrder);
+                            orderData.totalCopies += quantity;
+                            orderMap.set(currentOrder, orderData);
+                        }
+                    }
+                });
+
+                // Update the table
+                const tableBody = document.getElementById('orderTableBody');
+                tableBody.innerHTML = '';
+
+                if (orderMap.size === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="3" class="text-center">No orders found in the file.</td></tr>';
+                    return;
+                }
+
+                // Convert to array and sort by order number
+                const sortedOrders = Array.from(orderMap.values())
+                    .sort((a, b) => a.orderNumber.localeCompare(b.orderNumber));
+
+                let totalCopies = 0;
+
+                sortedOrders.forEach(order => {
+                    totalCopies += order.totalCopies;
+
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${formatDate(order.date)}</td>
+                        <td>${order.orderNumber}</td>
+                        <td>${order.totalCopies.toLocaleString()}</td>
+                    `;
+                    tableBody.appendChild(row);
+                });
+
+                // Update footer totals
+                const tableFoot = document.getElementById('tableFoot');
+                tableFoot.innerHTML = `
+                    <tr>
+                        <td colspan="2" class="text-end"><strong>Total:</strong></td>
+                        <td class="text-start"><strong>${totalCopies.toLocaleString()}</strong></td>
+                    </tr>
+                `;
+
+                // Enable buttons
+                document.getElementById('clearBtn').disabled = false;
+                document.getElementById('downloadBtn').disabled = false;
+
+            } catch (error) {
+                console.error('Error parsing orders:', error);
+                const tableBody = document.getElementById('orderTableBody');
+                tableBody.innerHTML = `<tr><td colspan="3" class="text-center text-danger">Error processing order data: ${error.message}</td></tr>`;
+            }
+        }
+
+        function clearTable() {
+            const tableBody = document.getElementById('orderTableBody');
+            tableBody.innerHTML = '<tr><td colspan="3" class="text-center">No data loaded</td></tr>';
+            const tableFoot = document.getElementById('tableFoot');
+            tableFoot.innerHTML = `
+                <tr>
+                    <td colspan="2" class="text-end"><strong>Total:</strong></td>
+                    <td class="text-start"><strong>0</strong></td>
+                </tr>
+            `;
+            document.getElementById('fileInput').value = '';
+            document.getElementById('clearBtn').disabled = true;
+            document.getElementById('downloadBtn').disabled = true;
+        }
+
+        function downloadCsv() {
+            const table = document.getElementById('orderTable');
+            const headerRow = table.querySelector('thead tr');
+            const dataRows = Array.from(table.querySelector('tbody').querySelectorAll('tr'));
+            const footerRow = table.querySelector('tfoot tr');
+            
+            // Convert header row
+            const headerCsv = Array.from(headerRow.cells)
+                .map(cell => `"${cell.textContent.trim()}"`)
+                .join(',');
+                
+            // Convert data rows
+            const dataCsv = dataRows
+                .map(row => Array.from(row.cells)
+                    .map(cell => `"${cell.textContent.trim()}"`)
+                    .join(','))
+                .join('\n');
+                
+            // Create footer row with adjusted Total position
+            const footerCsv = `,"Total","${footerRow.querySelector('td:last-child').textContent.trim()}"`;
+            
+            // Combine all parts
+            const csvContent = headerCsv + '\n' + dataCsv + '\n' + footerCsv;
+
+            // Create and trigger download
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'order_summary.csv';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>
