@@ -91,90 +91,91 @@
         });
 
         function processOrders(fileContent) {
-            try {
-                const lines = fileContent.split('\n');
-                const orderMap = new Map();
-                
-                let currentOrder = null;
-                let orderDate = '';
-                
-                lines.forEach(line => {
-                    // Check for header line (H1)
-                    if (line.startsWith('H1')) {
-                        const orderMatch = line.match(/H1(\d{10})\s+(\d{8})/);
-                        if (orderMatch) {
-                            currentOrder = orderMatch[1];
-                            const dateStr = orderMatch[2];
-                            orderDate = `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`;
-                            
-                            // Initialize order if it doesn't exist
-                            if (!orderMap.has(currentOrder)) {
-                                orderMap.set(currentOrder, {
-                                    orderNumber: currentOrder,
-                                    totalCopies: 0,
-                                    date: orderDate
-                                });
-                            }
-                        }
+    try {
+        const lines = fileContent.split('\n');
+        const orderMap = new Map();
+        
+        let currentOrder = null;
+        let orderDate = '';
+        
+        lines.forEach(line => {
+            // Check for header line (H1)
+            if (line.startsWith('H1')) {
+                const orderMatch = line.match(/H1(\d{10})\s+(\d{8})/);
+                if (orderMatch) {
+                    currentOrder = orderMatch[1];
+                    const dateStr = orderMatch[2];
+                    orderDate = `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`;
+                    
+                    // Initialize order if it doesn't exist
+                    if (!orderMap.has(currentOrder)) {
+                        orderMap.set(currentOrder, {
+                            orderNumber: currentOrder,
+                            totalCopies: 0,
+                            date: orderDate
+                        });
                     }
-                    // Check for detail line (D1)
-                    else if (line.startsWith('D1') && currentOrder) {
-                        const quantityMatch = line.match(/(\d{4})0{20}/);
-                        if (quantityMatch) {
-                            const quantity = parseInt(quantityMatch[1], 10);
-                            const orderData = orderMap.get(currentOrder);
-                            orderData.totalCopies += quantity;
-                            orderMap.set(currentOrder, orderData);
-                        }
-                    }
-                });
-
-                // Update the table
-                const tableBody = document.getElementById('orderTableBody');
-                tableBody.innerHTML = '';
-
-                if (orderMap.size === 0) {
-                    tableBody.innerHTML = '<tr><td colspan="3" class="text-center">No orders found in the file.</td></tr>';
-                    return;
                 }
-
-                // Convert to array and sort by order number
-                const sortedOrders = Array.from(orderMap.values())
-                    .sort((a, b) => a.orderNumber.localeCompare(b.orderNumber));
-
-                let totalCopies = 0;
-
-                sortedOrders.forEach(order => {
-                    totalCopies += order.totalCopies;
-
-                    const row = document.createElement('tr');
-                    row.innerHTML = `
-                        <td>${formatDate(order.date)}</td>
-                        <td>${order.orderNumber}</td>
-                        <td>${order.totalCopies.toLocaleString()}</td>
-                    `;
-                    tableBody.appendChild(row);
-                });
-
-                // Update footer totals
-                const tableFoot = document.getElementById('tableFoot');
-                tableFoot.innerHTML = `
-                    <tr>
-                        <td colspan="2" class="text-end"><strong>Total:</strong></td>
-                        <td class="text-start"><strong>${totalCopies.toLocaleString()}</strong></td>
-                    </tr>
-                `;
-
-                // Enable buttons
-                document.getElementById('clearBtn').disabled = false;
-                document.getElementById('downloadBtn').disabled = false;
-
-            } catch (error) {
-                console.error('Error parsing orders:', error);
-                const tableBody = document.getElementById('orderTableBody');
-                tableBody.innerHTML = `<tr><td colspan="3" class="text-center text-danger">Error processing order data: ${error.message}</td></tr>`;
             }
+            // Check for detail line (D1)
+            else if (line.startsWith('D1') && currentOrder) {
+                // Find the quantity field at specific position
+                const quantityField = line.substring(140, 180).trim();
+                if (quantityField && quantityField.length >= 28) {
+                    const quantity = parseInt(quantityField.substring(5, 7), 10);
+                    const orderData = orderMap.get(currentOrder);
+                    orderData.totalCopies += quantity;
+                    orderMap.set(currentOrder, orderData);
+                }
+            }
+        });
+
+        // Update the table
+        const tableBody = document.getElementById('orderTableBody');
+        tableBody.innerHTML = '';
+
+        if (orderMap.size === 0) {
+            tableBody.innerHTML = '<tr><td colspan="3" class="text-center">No orders found in the file.</td></tr>';
+            return;
         }
+
+        // Convert to array and sort by order number
+        const sortedOrders = Array.from(orderMap.values())
+            .sort((a, b) => a.orderNumber.localeCompare(b.orderNumber));
+
+        let totalCopies = 0;
+
+        sortedOrders.forEach(order => {
+            totalCopies += order.totalCopies;
+
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${formatDate(order.date)}</td>
+                <td>${order.orderNumber}</td>
+                <td>${order.totalCopies.toLocaleString()}</td>
+            `;
+            tableBody.appendChild(row);
+        });
+
+        // Update footer totals
+        const tableFoot = document.getElementById('tableFoot');
+        tableFoot.innerHTML = `
+            <tr>
+                <td colspan="2" class="text-end"><strong>Total:</strong></td>
+                <td class="text-start"><strong>${totalCopies.toLocaleString()}</strong></td>
+            </tr>
+        `;
+
+        // Enable buttons
+        document.getElementById('clearBtn').disabled = false;
+        document.getElementById('downloadBtn').disabled = false;
+
+    } catch (error) {
+        console.error('Error parsing orders:', error);
+        const tableBody = document.getElementById('orderTableBody');
+        tableBody.innerHTML = `<tr><td colspan="3" class="text-center text-danger">Error processing order data: ${error.message}</td></tr>`;
+    }
+}
 
         function clearTable() {
             const tableBody = document.getElementById('orderTableBody');
