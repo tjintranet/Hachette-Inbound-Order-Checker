@@ -90,92 +90,135 @@
             reader.readAsText(file);
         });
 
-        function processOrders(fileContent) {
-    try {
-        const lines = fileContent.split('\n');
-        const orderMap = new Map();
-        
-        let currentOrder = null;
-        let orderDate = '';
-        
-        lines.forEach(line => {
-            // Check for header line (H1)
-            if (line.startsWith('H1')) {
-                const orderMatch = line.match(/H1(\d{10})\s+(\d{8})/);
-                if (orderMatch) {
-                    currentOrder = orderMatch[1];
-                    const dateStr = orderMatch[2];
-                    orderDate = `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`;
-                    
-                    // Initialize order if it doesn't exist
-                    if (!orderMap.has(currentOrder)) {
-                        orderMap.set(currentOrder, {
-                            orderNumber: currentOrder,
-                            totalCopies: 0,
-                            date: orderDate
-                        });
-                    }
-                }
+        function parseQuantity(quantityArea) {
+            // Special case handling for specific patterns
+            
+            // Case 1: 100, 200, etc. (multiples of 100)
+            // Format: 0000X00000 (4 leading zeros, then 1 digit, then all zeros)
+            if (quantityArea.substring(0, 4) === "0000" && 
+                quantityArea[4] !== '0' && 
+                quantityArea.substring(5, 7) === "00") {
+                return parseInt(quantityArea[4], 10) * 100;
             }
-            // Check for detail line (D1)
-            else if (line.startsWith('D1') && currentOrder) {
-                // Find the quantity field at specific position
-                const quantityField = line.substring(140, 180).trim();
-                if (quantityField && quantityField.length >= 28) {
-                    const quantity = parseInt(quantityField.substring(5, 7), 10);
-                    const orderData = orderMap.get(currentOrder);
-                    orderData.totalCopies += quantity;
-                    orderMap.set(currentOrder, orderData);
-                }
+            
+            // Case 2: 201, 305, etc. (three-digit numbers not divisible by 100)
+            // Format: 0000XYZ000 (4 leading zeros, then 3 significant digits)
+            if (quantityArea.substring(0, 4) === "0000" && 
+                quantityArea[4] !== '0' && 
+                quantityArea[5] !== '0') {
+                // Get digits until we hit a trailing zero sequence
+                let numStr = quantityArea.substring(4);
+                return parseInt(numStr.replace(/0+$/, ''), 10);
             }
-        });
-
-        // Update the table
-        const tableBody = document.getElementById('orderTableBody');
-        tableBody.innerHTML = '';
-
-        if (orderMap.size === 0) {
-            tableBody.innerHTML = '<tr><td colspan="3" class="text-center">No orders found in the file.</td></tr>';
-            return;
+            
+            // Case 3: Single digit quantities (1-9)
+            // Format: 000000X000 (6 leading zeros, then 1 digit)
+            if (quantityArea.substring(0, 6) === "000000" && 
+                quantityArea[6] !== '0') {
+                return parseInt(quantityArea[6], 10);
+            }
+            
+            // Case 4: Two-digit quantities (10-99)
+            // Format: 00000XY000 (5 leading zeros, then 2 digits)
+            if (quantityArea.substring(0, 5) === "00000" && 
+                quantityArea[5] !== '0') {
+                return parseInt(quantityArea.substring(5, 7), 10);
+            }
+            
+            // Fallback: Remove all leading and trailing zeros and parse
+            return parseInt(quantityArea.replace(/^0+/, '').replace(/0+$/, ''), 10);
         }
 
-        // Convert to array and sort by order number
-        const sortedOrders = Array.from(orderMap.values())
-            .sort((a, b) => a.orderNumber.localeCompare(b.orderNumber));
+        function processOrders(fileContent) {
+            try {
+                const lines = fileContent.split('\n');
+                const orderMap = new Map();
+                
+                let currentOrder = null;
+                let orderDate = '';
+                
+                lines.forEach(line => {
+                    // Check for header line (H1)
+                    if (line.startsWith('H1')) {
+                        const orderMatch = line.match(/H1(\d{10})\s+(\d{8})/);
+                        if (orderMatch) {
+                            currentOrder = orderMatch[1];
+                            const dateStr = orderMatch[2];
+                            orderDate = `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`;
+                            
+                            // Initialize order if it doesn't exist
+                            if (!orderMap.has(currentOrder)) {
+                                orderMap.set(currentOrder, {
+                                    orderNumber: currentOrder,
+                                    totalCopies: 0,
+                                    date: orderDate
+                                });
+                            }
+                        }
+                    }
+                    // Check for detail line (D1)
+                    else if (line.startsWith('D1') && currentOrder && line.length >= 156) {
+                        // Extract the quantity area (positions 146-156)
+                        const quantityArea = line.substring(146, 156);
+                        
+                        // Parse the quantity using our specialized function
+                        const quantity = parseQuantity(quantityArea);
+                        
+                        // Add to the order total if valid
+                        if (!isNaN(quantity) && quantity > 0) {
+                            const orderData = orderMap.get(currentOrder);
+                            orderData.totalCopies += quantity;
+                            orderMap.set(currentOrder, orderData);
+                        }
+                    }
+                });
 
-        let totalCopies = 0;
+                // Update the table
+                const tableBody = document.getElementById('orderTableBody');
+                tableBody.innerHTML = '';
 
-        sortedOrders.forEach(order => {
-            totalCopies += order.totalCopies;
+                if (orderMap.size === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="3" class="text-center">No orders found in the file.</td></tr>';
+                    return;
+                }
 
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td>${formatDate(order.date)}</td>
-                <td>${order.orderNumber}</td>
-                <td>${order.totalCopies.toLocaleString()}</td>
-            `;
-            tableBody.appendChild(row);
-        });
+                // Convert to array and sort by order number
+                const sortedOrders = Array.from(orderMap.values())
+                    .sort((a, b) => a.orderNumber.localeCompare(b.orderNumber));
 
-        // Update footer totals
-        const tableFoot = document.getElementById('tableFoot');
-        tableFoot.innerHTML = `
-            <tr>
-                <td colspan="2" class="text-end"><strong>Total:</strong></td>
-                <td class="text-start"><strong>${totalCopies.toLocaleString()}</strong></td>
-            </tr>
-        `;
+                let totalCopies = 0;
 
-        // Enable buttons
-        document.getElementById('clearBtn').disabled = false;
-        document.getElementById('downloadBtn').disabled = false;
+                sortedOrders.forEach(order => {
+                    totalCopies += order.totalCopies;
 
-    } catch (error) {
-        console.error('Error parsing orders:', error);
-        const tableBody = document.getElementById('orderTableBody');
-        tableBody.innerHTML = `<tr><td colspan="3" class="text-center text-danger">Error processing order data: ${error.message}</td></tr>`;
-    }
-}
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${formatDate(order.date)}</td>
+                        <td>${order.orderNumber}</td>
+                        <td>${order.totalCopies.toLocaleString()}</td>
+                    `;
+                    tableBody.appendChild(row);
+                });
+
+                // Update footer totals
+                const tableFoot = document.getElementById('tableFoot');
+                tableFoot.innerHTML = `
+                    <tr>
+                        <td colspan="2" class="text-end"><strong>Total:</strong></td>
+                        <td class="text-start"><strong>${totalCopies.toLocaleString()}</strong></td>
+                    </tr>
+                `;
+
+                // Enable buttons
+                document.getElementById('clearBtn').disabled = false;
+                document.getElementById('downloadBtn').disabled = false;
+
+            } catch (error) {
+                console.error('Error parsing orders:', error);
+                const tableBody = document.getElementById('orderTableBody');
+                tableBody.innerHTML = `<tr><td colspan="3" class="text-center text-danger">Error processing order data: ${error.message}</td></tr>`;
+            }
+        }
 
         function clearTable() {
             const tableBody = document.getElementById('orderTableBody');
